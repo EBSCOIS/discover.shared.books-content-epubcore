@@ -14,7 +14,7 @@ namespace EpubCore
 {
     public static class EpubReader
     {
-        public static EpubBook Read(string filePath, Encoding encoding = null)
+        public static EpubBook Read(string filePath, Encoding encoding = null, bool lazy = false)
         {
             if (filePath == null) throw new ArgumentNullException(nameof(filePath));
             if (encoding == null) encoding = Constants.DefaultEncoding;
@@ -24,16 +24,16 @@ namespace EpubCore
                 throw new FileNotFoundException("Specified epub file not found.", filePath);
             }
 
-            return Read(File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read), false, encoding);
+            return Read(File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read), false, encoding, lazy);
         }
 
-        public static EpubBook Read(byte[] epubData, Encoding encoding = null)
+        public static EpubBook Read(byte[] epubData, Encoding encoding = null, bool lazy = false)
         {
             if (encoding == null) encoding = Constants.DefaultEncoding;
-            return Read(new MemoryStream(epubData), false, encoding);
+            return Read(new MemoryStream(epubData), false, encoding, lazy);
         }
 
-        public static EpubBook Read(Stream stream, bool leaveOpen, Encoding encoding = null)
+        public static EpubBook Read(Stream stream, bool leaveOpen, Encoding encoding = null, bool lazy = false)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (encoding == null) encoding = Constants.DefaultEncoding;
@@ -67,7 +67,7 @@ namespace EpubCore
                 }
 
                 var book = new EpubBook { Format = format };
-                book.Resources = LoadResources(archive, book);
+                book.Resources = LoadResources(archive, book, lazy);
                 book.SpecialResources = LoadSpecialResources(archive, book);
                 book.CoverImage = LoadCoverImage(book);
                 book.CoverImageHref = LoadCoverImageName(book);
@@ -212,7 +212,7 @@ namespace EpubCore
             return result;
         }
 
-        private static EpubResources LoadResources(ZipArchive epubArchive, EpubBook book)
+        private static EpubResources LoadResources(ZipArchive epubArchive, EpubBook book, bool lazy)
         {
             var resources = new EpubResources();
 
@@ -258,11 +258,14 @@ namespace EpubCore
 
                             resources.All.Add(file);
 
-                            using (var stream = entry.Open())
+                            file.FileName = entry.Name;
+                            file.FullFilePath = entry.FullName;
+                            if (!lazy)
                             {
-                                file.Content = stream.ReadToEnd();
-                                file.FileName = entry.Name;
-                                file.FullFilePath = entry.FullName;
+	                            using (var stream = entry.Open())
+	                            {
+		                            file.Content = stream.ReadToEnd();
+	                            }
                             }
 
                             switch (contentType)
@@ -291,18 +294,21 @@ namespace EpubCore
 
                             resources.All.Add(file);
 
-                            using (var stream = entry.Open())
+                            if (!lazy)
                             {
-                                if (stream == null)
-                                {
+	                            using (var stream = entry.Open())
+	                            {
+		                            if (stream == null)
+		                            {
                                     throw new EpubException($"Incorrect EPUB file: content file \"{href}\" specified in manifest is not found");
-                                }
+		                            }
 
-                                using (var memoryStream = new MemoryStream((int)entry.Length))
-                                {
-                                    stream.CopyTo(memoryStream);
-                                    file.Content = memoryStream.ToArray();
-                                }
+		                            using (var memoryStream = new MemoryStream((int)entry.Length))
+		                            {
+			                            stream.CopyTo(memoryStream);
+			                            file.Content = memoryStream.ToArray();
+		                            }
+	                            }
                             }
 
                             switch (contentType)
